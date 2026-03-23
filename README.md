@@ -1,1 +1,1 @@
-# case-bem-agro
+# technical-cases
