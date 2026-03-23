@@ -1,21 +1,13 @@
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import shapely
-import math
 import os
 import rasterio
-from rasterio.mask import mask
 import json
-from rasterio.plot import show
-import matplotlib.pyplot as plt
 import cv2
 from skimage.filters import threshold_multiotsu
-import matplotlib.patches as mpatches
 
 from skimage.measure import label, regionprops
-from skimage.morphology import closing, square
-from skimage.color import label2rgb
 import json
 
 
@@ -127,6 +119,5 @@ def main(path_tif):
         gdf_to_json(gdf_objects, total_area_m2, uniformity_plant_index, output_filename)
         
 
-path_tif = "data/sample2.tif"
+path_tif = "data/sample1.tif"
 main(path_tif)
-    
