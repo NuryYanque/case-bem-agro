@@ -16,6 +16,7 @@ import matplotlib.patches as mpatches
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.color import label2rgb
+import json
 
 
 def convert_to_rgb(src):
@@ -49,8 +50,7 @@ def morphogical_operations(binary):
     
     return horizontal
 
-def objects_to_dataframe(binary, transform, crs, filename):
-    num_labels, labels_im = cv2.connectedComponents(binary)
+def objects_to_dataframe(binary, transform, crs):
     label_image = label(binary)
     ls_x = []
     ls_y = []
@@ -65,17 +65,68 @@ def objects_to_dataframe(binary, transform, crs, filename):
     df_xy['y'] = ls_y
     gdf = gpd.GeoDataFrame(df_xy, geometry=gpd.points_from_xy(df_xy['x'], df_xy['y']))
     gdf = gdf.set_crs(crs)
-    gdf.to_file(f"output/objects_{filename}.geojson")
+    
+    return gdf
+
+def get_homogeneity_index(binary):
+    num_labels, labels_im = cv2.connectedComponents(binary)
+    # ignora fundo (label 0)
+    areas = np.bincount(labels_im.ravel())[1:]
+
+    mean_area = np.mean(areas)
+    std_area = np.std(areas)
+
+    cv = std_area / mean_area
+    # print("Indice de homogeneidade: ", cv)
+    uniformity = 1 / (1 + cv)
+    # print("Indice de homogeneidade amigavel: ", uniformity) # between 0 and 1
+    return uniformity
+
+def gdf_to_json(gdf_plants, area_m2, uniformity, filename):
+
+    total_plants = len(gdf_plants)  # GeoDataFrame com plantas
+    area_hectares = area_m2 / 10000  # converter m² → hectares
+
+    result = {
+        "total_plants": total_plants,
+        "area_hectares": area_hectares,
+        "plants_per_hectare_avg": total_plants / area_hectares if area_hectares > 0 else 0,
+        "homogeneity_plant_index": uniformity
+    }
+
+    with open(f"output/statistic-{filename}.json", "w") as f:
+        json.dump(result, f, indent=4)
 
 
-def main():
-    path_tif = "data/sample2.tif"
-    src = rasterio.open(path_tif)
-    img_rgb = convert_to_rgb(src)
-    img_binary = rgb_to_binarize(img_rgb)
-    img_binary = morphogical_operations(img_binary)
-    output_filename = os.path.basename(path_tif.split(".")[0])
-    objects_to_dataframe(img_binary, src.transform, src.crs.to_dict(), output_filename)
+def main(path_tif):
+    with rasterio.open(path_tif) as src:
+        pixel_size_x = src.res[0]  # width of pixel (meters)
+        pixel_size_y = src.res[1]  # height of pixel (meters)
+        
+        pixel_area = pixel_size_x * pixel_size_y  # m²
+        
+        data = src.read(1)
+        
+        # count valid pixels (exclude nodata)
+        if src.nodata is not None:
+            valid_pixels = np.sum(data != src.nodata)
+        else:
+            valid_pixels = data.size
 
-main()
+        total_area_m2 = valid_pixels * pixel_area
+
+        img_rgb = convert_to_rgb(src)
+        img_binary = rgb_to_binarize(img_rgb)
+        img_binary = morphogical_operations(img_binary)
+        gdf_objects = objects_to_dataframe(img_binary, src.transform, src.crs.to_dict())
+        uniformity_plant_index = get_homogeneity_index(img_binary)
+        
+        output_filename = os.path.basename(path_tif.split(".")[0])
+        gdf_objects.to_file(f"output/objects_{output_filename}.geojson")
+
+        gdf_to_json(gdf_objects, total_area_m2, uniformity_plant_index, output_filename)
+        
+
+path_tif = "data/sample2.tif"
+main(path_tif)
     
